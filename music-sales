@@ -1,0 +1,283 @@
+/*==============================================================
+  PROJECT: Music Sales Data Analysis
+  DATABASE: MusicDB
+  DESCRIPTION:
+  Business analysis of a music sales database using SQL.
+==============================================================*/
+
+-- ============================================================
+-- Create and Use Database
+-- ============================================================
+
+CREATE DATABASE MusicDB;
+GO
+
+USE MusicDB;
+GO
+
+-- Preview Invoice Table
+SELECT *
+FROM Invoice;
+
+
+-- ============================================================
+-- Q1: Find the Most Senior Employee
+-- ============================================================
+
+SELECT
+    CONCAT(first_name, ' ', last_name) AS Employee_Name,
+    hire_date,
+    title
+FROM Employee
+ORDER BY levels DESC;
+
+
+-- ============================================================
+-- Q2: Countries with the Highest Number of Invoices
+-- ============================================================
+
+SELECT
+    billing_country,
+    COUNT(invoice_id) AS Total_Invoices
+FROM Invoice
+GROUP BY billing_country
+ORDER BY Total_Invoices DESC;
+
+
+-- ============================================================
+-- Q3: Top 3 Highest Invoice Totals
+-- ============================================================
+
+SELECT TOP 3 *
+FROM Invoice
+ORDER BY total DESC;
+
+
+-- ============================================================
+-- Q4: City with the Highest Total Sales
+-- ============================================================
+
+SELECT TOP 1
+    billing_city,
+    SUM(total) AS Total_Invoice_Amount
+FROM Invoice
+GROUP BY billing_city
+ORDER BY Total_Invoice_Amount DESC;
+
+
+-- ============================================================
+-- Q5: Customer Who Spent the Most Money
+-- ============================================================
+
+SELECT TOP 1
+    CONCAT(C.first_name, ' ', C.last_name) AS Customer_Name,
+    SUM(I.total) AS Total_Spent
+FROM Invoice AS I
+INNER JOIN Customer AS C
+    ON I.customer_id = C.customer_id
+GROUP BY
+    C.first_name,
+    C.last_name
+ORDER BY Total_Spent DESC;
+
+
+-- ============================================================
+-- Q6: Customers Who Purchased Rock Music
+-- ============================================================
+
+SELECT DISTINCT
+    CONCAT(C.first_name, ' ', C.last_name) AS Customer_Name,
+    C.email,
+    G.name AS Genre
+FROM Customer AS C
+INNER JOIN Invoice AS I
+    ON C.customer_id = I.customer_id
+INNER JOIN Invoice_Line AS IL
+    ON I.invoice_id = IL.invoice_id
+INNER JOIN Track AS T
+    ON IL.track_id = T.track_id
+INNER JOIN Genre AS G
+    ON T.genre_id = G.genre_id
+WHERE G.name = 'Rock';
+
+
+-- ============================================================
+-- Preview Tables
+-- ============================================================
+
+SELECT * FROM Invoice;
+SELECT * FROM Track;
+SELECT * FROM Invoice_Line;
+SELECT * FROM Artist;
+SELECT * FROM Album;
+SELECT * FROM Album2;
+
+
+-- ============================================================
+-- Q7: Top 10 Rock Artists Based on Purchases
+-- ============================================================
+
+WITH CombinedAlbums AS
+(
+    SELECT album_id, artist_id
+    FROM Album
+
+    UNION ALL
+
+    SELECT album_id, artist_id
+    FROM Album2
+)
+
+SELECT TOP 10
+    A.name AS Artist_Name,
+    COUNT(*) AS Total_Listens
+FROM Invoice_Line AS IL
+INNER JOIN Track AS T
+    ON IL.track_id = T.track_id
+INNER JOIN Genre AS G
+    ON T.genre_id = G.genre_id
+INNER JOIN CombinedAlbums AS CA
+    ON T.album_id = CA.album_id
+INNER JOIN Artist AS A
+    ON CA.artist_id = A.artist_id
+WHERE G.name = 'Rock'
+GROUP BY A.name
+ORDER BY Total_Listens DESC;
+
+
+-- ============================================================
+-- Q8: Tracks Longer Than the Average Track Length
+-- ============================================================
+
+SELECT
+    name AS Song_Name,
+    milliseconds
+FROM Track
+WHERE milliseconds >
+(
+    SELECT AVG(milliseconds)
+    FROM Track
+)
+ORDER BY milliseconds DESC;
+
+
+-- ============================================================
+-- Q9: Customer Spending by Artist
+-- ============================================================
+
+WITH CombinedAlbums AS
+(
+    SELECT album_id, artist_id
+    FROM Album
+
+    UNION ALL
+
+    SELECT album_id, artist_id
+    FROM Album2
+)
+
+SELECT
+    C.customer_id,
+    CONCAT(C.first_name, ' ', C.last_name) AS Customer_Name,
+    AR.name AS Artist_Name,
+    SUM(IL.unit_price * IL.quantity) AS Total_Spent
+FROM Customer AS C
+INNER JOIN Invoice AS I
+    ON C.customer_id = I.customer_id
+INNER JOIN Invoice_Line AS IL
+    ON I.invoice_id = IL.invoice_id
+INNER JOIN Track AS T
+    ON IL.track_id = T.track_id
+INNER JOIN CombinedAlbums AS CA
+    ON T.album_id = CA.album_id
+INNER JOIN Artist AS AR
+    ON CA.artist_id = AR.artist_id
+GROUP BY
+    C.customer_id,
+    C.first_name,
+    C.last_name,
+    AR.name
+ORDER BY Total_Spent DESC;
+
+
+-- ============================================================
+-- Q10: Most Popular Genre in Each Country
+-- ============================================================
+
+WITH GenrePopularity AS
+(
+    SELECT
+        C.country,
+        G.name AS Genre,
+        COUNT(*) AS Total_Purchases,
+
+        RANK() OVER
+        (
+            PARTITION BY C.country
+            ORDER BY COUNT(*) DESC
+        ) AS Genre_Rank
+
+    FROM Invoice_Line AS IL
+    INNER JOIN Invoice AS I
+        ON IL.invoice_id = I.invoice_id
+    INNER JOIN Customer AS C
+        ON I.customer_id = C.customer_id
+    INNER JOIN Track AS T
+        ON IL.track_id = T.track_id
+    INNER JOIN Genre AS G
+        ON T.genre_id = G.genre_id
+
+    GROUP BY
+        C.country,
+        G.name
+)
+
+SELECT
+    country,
+    Genre,
+    Total_Purchases
+FROM GenrePopularity
+WHERE Genre_Rank = 1
+ORDER BY Total_Purchases DESC;
+
+
+-- ============================================================
+-- Q11: Top-Spending Customer in Each Country
+-- ============================================================
+
+WITH CustomerSpending AS
+(
+    SELECT
+        C.customer_id,
+        CONCAT(C.first_name, ' ', C.last_name) AS Customer_Name,
+        C.country,
+
+        SUM(IL.unit_price * IL.quantity) AS Total_Spent,
+
+        ROW_NUMBER() OVER
+        (
+            PARTITION BY C.country
+            ORDER BY SUM(IL.unit_price * IL.quantity) DESC
+        ) AS Spending_Rank
+
+    FROM Customer AS C
+    INNER JOIN Invoice AS I
+        ON C.customer_id = I.customer_id
+    INNER JOIN Invoice_Line AS IL
+        ON I.invoice_id = IL.invoice_id
+
+    GROUP BY
+        C.customer_id,
+        C.first_name,
+        C.last_name,
+        C.country
+)
+
+SELECT
+    customer_id,
+    Customer_Name,
+    country,
+    Total_Spent
+FROM CustomerSpending
+WHERE Spending_Rank = 1
+ORDER BY country;
